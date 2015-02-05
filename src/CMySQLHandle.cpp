@@ -92,6 +92,11 @@ CMySQLHandle *CMySQLHandle::Create(string host, string user, string pass, string
 
 void CMySQLHandle::Destroy() 
 {
+	while (CMySQLHandle::GetHandle(m_MyID)->GetUnprocessedQueryCount() > 0)
+	{
+		// Wait for them to finish.
+	}
+
 	if (ActiveHandle == this)
 		ActiveHandle = NULL;
 
