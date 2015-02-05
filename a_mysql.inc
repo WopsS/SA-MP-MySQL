@@ -1,5 +1,5 @@
 /**
- * MySQL plugin R40
+ * MySQL plugin R39-2
  */
 
 
@@ -12,8 +12,8 @@
 /**
  * Common error codes
  *
- * Client: http://dev.mysql.com/doc/refman/5.5/en/error-messages-client.html
- * Server: http://dev.mysql.com/doc/refman/5.5/en/error-messages-server.html
+ * Client: http://dev.mysql.com/doc/refman/5.1/en/error-messages-client.html
+ * Server: http://dev.mysql.com/doc/refman/5.1/en/error-messages-server.html
  */
 
 #define ER_DBACCESS_DENIED_ERROR 		1044
@@ -28,63 +28,60 @@
 
 enum E_LOGLEVEL
 {
-	NONE = 0,
-	ERROR = 1,
-	WARNING = 2,
-	DEBUG = 4,
+	LOG_NONE = 0,
+	LOG_ERROR = 1,
+	LOG_WARNING = 2,
+	LOG_DEBUG = 4,
 	
-	ALL = ERROR | WARNING | DEBUG
+	LOG_ALL = LOG_ERROR | LOG_WARNING | LOG_DEBUG
 };
 
 enum E_LOGTYPE
 {
-	INVALID,
-	TEXT,
-	HTML
+	LOG_TYPE_TEXT = 1,
+	LOG_TYPE_HTML = 2
 };
 
-enum E_ORM_ERROR
+enum ORM_Error
 {
 	ERROR_OK,
 	ERROR_NO_DATA
 };
 
-enum E_MYSQL_GLOBAL_OPTION
+enum E_VAR_DATATYPE 
 {
-	DUPLICATE_CONNECTIONS
-	//LOG_TRUNCATE_DATA //TODO: do we really need this?
+	DATATYPE_INT,
+	DATATYPE_FLOAT,
+	DATATYPE_STRING
 };
 
 enum E_MYSQL_OPTION
 {
-	AUTO_RECONNECT,
-	MULTI_STATEMENTS,
-	POOL_SIZE,
-	SERVER_PORT
-	//TODO: SSL stuff
+	DUPLICATE_CONNECTIONS,
+	LOG_TRUNCATE_DATA
 };
 
 enum E_EXECTIME_UNIT
 {
-	MILLISECONDS,
-	MICROSECONDS
+	UNIT_MILLISECONDS,
+	UNIT_MICROSECONDS
 };
 
-#define MYSQL_DEFAULT_HANDLE MySQL:1
-#define MYSQL_INVALID_HANDLE MySQL:0
-#define MYSQL_INVALID_CACHE Cache:0
-#define MYSQL_INVALID_ORM ORM:0
 
-#define cache_num_rows 		cache_get_row_count
-#define cache_num_fields 	cache_get_field_count
-#define cache_num_results	cache_get_result_count
+#define mysql_real_escape_string 					mysql_escape_string
+#define cache_num_fields 							cache_get_field_count
+#define cache_num_rows 								cache_get_row_count
+#define mysql_function_query(%0,%1,%2,%3,"%4"%5) 	mysql_tquery(%0,%1,%3,#%4%5)
+#define mysql_reload(%0) 							mysql_tquery(%0,"FLUSH PRIVILEGES")
+#define mysql_debug(%0)								(%0?mysql_log(LOG_ALL):mysql_log())
+#define ismysqlnull(%0) 							(strcmp(%0,"NULL",false)==0)
 
 
 // ORM functions
-native ORM:orm_create(const table[], MySQL:handle = MYSQL_DEFAULT_HANDLE);
+native ORM:orm_create(const table[], connectionHandle = 1);
 native orm_destroy(ORM:id);
 
-native E_ORM_ERROR:orm_errno(ORM:id);
+native ORM_Error:orm_errno(ORM:id);
 
 native orm_apply_cache(ORM:id, row);
 native orm_select(ORM:id, callback[] = "", format[] = "", {Float, _}:...);
@@ -110,65 +107,62 @@ native orm_setkey(ORM:id, varname[]);
 
 
 // MySQL functions
-native mysql_log(E_LOGLEVEL:loglevel = ERROR | WARNING, E_LOGTYPE:logtype = TEXT);
-native MySQL:mysql_connect(const host[], const user[], const password[], const database[], MySQLOpt:option_id = MySQLOpt:0);
-native mysql_close(MySQL:handle = MYSQL_DEFAULT_HANDLE);
+native mysql_log(E_LOGLEVEL:loglevel = LOG_ERROR | LOG_WARNING, E_LOGTYPE:logtype = LOG_TYPE_TEXT);
+native mysql_connect(const host[], const user[], const database[], const password[], port = 3306, bool:autoreconnect = true, pool_size = 2);
+native mysql_close(connectionHandle = 1);
+native mysql_reconnect(connectionHandle = 1);
 
-native mysql_unprocessed_queries(MySQL:handle = MYSQL_DEFAULT_HANDLE);
-native mysql_global_options(E_MYSQL_GLOBAL_OPTION:type, value);
+native mysql_unprocessed_queries(connectionHandle = 1);
+native mysql_current_handle();
+native mysql_option(E_MYSQL_OPTION:type, value);
 
-native MySQLOpt:mysql_init_options();
-native mysql_set_option(MySQLOpt:option_id, E_MYSQL_OPTION:type, ...);
-
-native mysql_pquery(MySQL:handle, const query[], const callback[] = "", const format[] = "", {Float,_}:...);
+native mysql_errno(connectionHandle = 1);
+native mysql_escape_string(const source[], destination[], connectionHandle = 1, max_len = sizeof(destination));
+native mysql_format(connectionHandle, output[], len, format[], {Float,_}:...);
+native mysql_pquery(connectionHandle, query[], callback[] = "", format[] = "", {Float,_}:...);
 /*
-native mysql_pquery_inline(MySQL:handle, const query[], callback:Callback, const format[], {Float,_}:...); //y_inline
+native mysql_pquery_inline(connHandle, query[], callback:Callback, format[], {Float,_}:...); //y_inline
 */
-native mysql_tquery(MySQL:handle, const query[], const callback[] = "", const format[] = "", {Float,_}:...);
+native mysql_tquery(connectionHandle, query[], callback[] = "", format[] = "", {Float,_}:...);
 /*
-native mysql_tquery_inline(MySQL:handle, const query[], callback:Callback, const format[], {Float,_}:...); //y_inline
+native mysql_tquery_inline(connHandle, query[], callback:Callback, format[], {Float,_}:...); //y_inline
 */
-native Cache:mysql_query(MySQL:handle, const query[], bool:use_cache = true);
+native Cache:mysql_query(conhandle, query[], bool:use_cache = true);
 
-native mysql_errno(MySQL:handle = MYSQL_DEFAULT_HANDLE);
-native mysql_format(MySQL:handle, output[], len, const format[], {Float,_}:...);
-native mysql_escape_string(const source[], destination[], max_len = sizeof(destination), MySQL:handle = MYSQL_DEFAULT_HANDLE);
-native mysql_set_charset(const charset[], MySQL:handle = MYSQL_DEFAULT_HANDLE);
-native mysql_get_charset(destination[], max_len = sizeof(destination), MySQL:handle = MYSQL_DEFAULT_HANDLE);
-native mysql_stat(destination[], max_len = sizeof(destination), MySQL:handle = MYSQL_DEFAULT_HANDLE);
-
+native mysql_stat(destination[], connectionHandle = 1, max_len = sizeof(destination));
+native mysql_get_charset(destination[], connectionHandle = 1, max_len = sizeof(destination));
+native mysql_set_charset(charset[], connectionHandle = 1);
 
 
 // Cache functions
-native cache_get_row_count();
-native cache_get_field_count();
-native cache_get_result_count();
-native cache_get_field_name(field_index, destination[], max_len = sizeof(destination));
-native cache_set_result(result_index);
+native cache_get_data(&num_rows, &num_fields, connectionHandle = 1);
+native cache_get_row_count(connectionHandle = 1);
+native cache_get_field_count(connectionHandle = 1);
+native cache_get_field_name(field_index, destination[], connectionHandle = 1, max_len = sizeof(destination));
 
-native cache_get_row(row_idx, field_idx, destination[], max_len = sizeof(destination));
-native cache_get_row_int(row_idx, field_idx);
-native Float:cache_get_row_float(row_idx, field_idx);
+native cache_get_row(row, field_idx, destination[], connectionHandle = 1, max_len = sizeof(destination));
+native cache_get_row_int(row, field_idx, connectionHandle = 1);
+native Float:cache_get_row_float(row, field_idx, connectionHandle = 1);
 
-native cache_get_field_content(row_idx, const field_name[], destination[], max_len = sizeof(destination));
-native cache_get_field_content_int(row_idx, const field_name[]);
-native Float:cache_get_field_content_float(row_idx, const field_name[]);
+native cache_get_field_content(row, const field_name[], destination[], connectionHandle = 1, max_len = sizeof(destination));
+native cache_get_field_content_int(row, const field_name[], connectionHandle = 1);
+native Float:cache_get_field_content_float(row, const field_name[], connectionHandle = 1);
 
-native Cache:cache_save();
-native cache_delete(Cache:cache_id);
-native cache_set_active(Cache:cache_id);
-native cache_is_valid(Cache:cache_id);
+native Cache:cache_save(connectionHandle = 1);
+native cache_delete(Cache:cache_id, connectionHandle = 1);
+native cache_set_active(Cache:cache_id, connectionHandle = 1);
+native cache_is_valid(Cache:cache_id, connectionHandle = 1);
 
-native cache_affected_rows();
-native cache_warning_count();
-native cache_insert_id();
+native cache_affected_rows(connectionHandle = 1);
+native cache_insert_id(connectionHandle = 1);
+native cache_warning_count(connectionHandle = 1);
 
-native cache_get_query_exec_time(E_EXECTIME_UNIT:unit = MICROSECONDS);
+native cache_get_query_exec_time(E_EXECTIME_UNIT:unit = UNIT_MICROSECONDS);
 native cache_get_query_string(destination[], max_len = sizeof(destination));
 
 
 // Forward declarations
-forward OnQueryError(errorid, const error[], const callback[], const query[], MySQL:handle);
+forward OnQueryError(errorid, error[], callback[], query[], connectionHandle);
 
 
 #if defined MYSQL_USE_YINLINE || defined E_CALLBACK_DATA

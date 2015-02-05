@@ -1,10 +1,8 @@
-#include "sdk.h"
+#include "main.h"
 #include "CScripting.h"
-#include "CHandle.h"
+#include "CMySQLHandle.h"
 #include "CCallback.h"
-#include "CResult.h"
-#include "CDispatcher.h"
-#include "COptions.h"
+#include "CLog.h"
 
 #ifdef WIN32
 	#include <WinSock2.h>
@@ -16,7 +14,7 @@
 
 extern void	*pAMXFunctions;
 logprintf_t logprintf;
-
+ 
 
 PLUGIN_EXPORT unsigned int PLUGIN_CALL Supports() 
 {
@@ -34,8 +32,9 @@ PLUGIN_EXPORT bool PLUGIN_CALL Load(void **ppData)
 		return false;
 	}
 	
-	
-	logprintf(" >> plugin.mysql: R40 successfully loaded.");
+	CLog::Get()->Initialize("mysql_log.txt"); 
+
+	logprintf(" >> plugin.mysql: R39-2 successfully loaded.");
 	return true;
 }
 
@@ -43,20 +42,17 @@ PLUGIN_EXPORT void PLUGIN_CALL Unload()
 {
 	logprintf("plugin.mysql: Unloading plugin...");
 
-	CHandleManager::CSingleton::Destroy();
-	CCallbackManager::CSingleton::Destroy();
-	CResultSetManager::CSingleton::Destroy();
-	CDispatcher::CSingleton::Destroy();
-	COptionManager::CSingleton::Destroy();
-
+	CCallback::Get()->Destroy();
+	CMySQLHandle::ClearAll();
 	mysql_library_end();
+	CLog::Destroy(); //this has to be the last because Destroy-functions in ClearAll() are logging data
 
 	logprintf("plugin.mysql: Plugin unloaded."); 
 }
 
 PLUGIN_EXPORT void PLUGIN_CALL ProcessTick() 
 {
-	CDispatcher::Get()->Process();
+	CCallback::Get()->ProcessCallbacks();
 }
 
 
@@ -86,12 +82,11 @@ extern "C" const AMX_NATIVE_INFO native_list[] =
 	AMX_DEFINE_NATIVE(mysql_log)
 	AMX_DEFINE_NATIVE(mysql_connect)
 	AMX_DEFINE_NATIVE(mysql_close)
+	AMX_DEFINE_NATIVE(mysql_reconnect)
 	
 	AMX_DEFINE_NATIVE(mysql_unprocessed_queries)
-	AMX_DEFINE_NATIVE(mysql_global_options)
-
-	AMX_DEFINE_NATIVE(mysql_init_options)
-	AMX_DEFINE_NATIVE(mysql_set_option)
+	AMX_DEFINE_NATIVE(mysql_current_handle)
+	AMX_DEFINE_NATIVE(mysql_option)
 	
 	AMX_DEFINE_NATIVE(mysql_errno)
 	AMX_DEFINE_NATIVE(mysql_escape_string)
@@ -105,11 +100,10 @@ extern "C" const AMX_NATIVE_INFO native_list[] =
 	AMX_DEFINE_NATIVE(mysql_set_charset)
 
 
+	AMX_DEFINE_NATIVE(cache_get_data)
 	AMX_DEFINE_NATIVE(cache_get_row_count)
 	AMX_DEFINE_NATIVE(cache_get_field_count)
-	AMX_DEFINE_NATIVE(cache_get_result_count)
 	AMX_DEFINE_NATIVE(cache_get_field_name)
-	AMX_DEFINE_NATIVE(cache_set_result)
 
 	AMX_DEFINE_NATIVE(cache_get_row)
 	AMX_DEFINE_NATIVE(cache_get_row_int)
@@ -135,12 +129,13 @@ extern "C" const AMX_NATIVE_INFO native_list[] =
 
 PLUGIN_EXPORT int PLUGIN_CALL AmxLoad(AMX *amx) 
 {
-	CCallbackManager::Get()->AddAmx(amx);
+	CCallback::Get()->AddAmx(amx);
 	return amx_Register(amx, native_list, -1);
 }
 
 PLUGIN_EXPORT int PLUGIN_CALL AmxUnload(AMX *amx) 
 {
-	CCallbackManager::Get()->RemoveAmx(amx);
+	CCallback::Get()->EraseAmx(amx);
 	return AMX_ERR_NONE;
 }
+

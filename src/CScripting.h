@@ -1,6 +1,9 @@
 #pragma once
+#ifndef INC_CSCRIPTING_H
+#define INC_CSCRIPTING_H
 
-#include "sdk.h"
+
+#include "main.h"
 
 #define AMX_DECLARE_NATIVE(native) \
 	cell AMX_NATIVE_CALL native(AMX *amx, cell *params)
@@ -37,12 +40,11 @@ namespace Native
 	AMX_DECLARE_NATIVE(mysql_log);
 	AMX_DECLARE_NATIVE(mysql_connect);
 	AMX_DECLARE_NATIVE(mysql_close);
+	AMX_DECLARE_NATIVE(mysql_reconnect);
 
 	AMX_DECLARE_NATIVE(mysql_unprocessed_queries);
-	AMX_DECLARE_NATIVE(mysql_global_options);
-
-	AMX_DECLARE_NATIVE(mysql_init_options);
-	AMX_DECLARE_NATIVE(mysql_set_option);
+	AMX_DECLARE_NATIVE(mysql_current_handle);
+	AMX_DECLARE_NATIVE(mysql_option);
 
 	AMX_DECLARE_NATIVE(mysql_errno);
 	AMX_DECLARE_NATIVE(mysql_escape_string);
@@ -57,11 +59,10 @@ namespace Native
 	
 
 	//Cache natives
+	AMX_DECLARE_NATIVE(cache_get_data);
 	AMX_DECLARE_NATIVE(cache_get_row_count);
 	AMX_DECLARE_NATIVE(cache_get_field_count);
-	AMX_DECLARE_NATIVE(cache_get_result_count);
 	AMX_DECLARE_NATIVE(cache_get_field_name);
-	AMX_DECLARE_NATIVE(cache_set_result);
 
 	AMX_DECLARE_NATIVE(cache_get_row);
 	AMX_DECLARE_NATIVE(cache_get_row_int);
@@ -83,3 +84,6 @@ namespace Native
 	AMX_DECLARE_NATIVE(cache_get_query_exec_time);
 	AMX_DECLARE_NATIVE(cache_get_query_string);
 };
+
+
+#endif // INC_CSCRIPTING_H

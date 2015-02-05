@@ -1,134 +1,151 @@
+#include "main.h"
 #include "CCallback.h"
+#include "CMySQLHandle.h"
+#include "CMySQLQuery.h"
+#include "CMySQLResult.h"
+#include "COrm.h"
+#include "CLog.h"
+#include "misc.h"
 
-#include <map>
+#include <queue>
 
 
-Callback_t CCallback::Create(
-	AMX *amx, string name, string format, cell *params, cell param_offset, CCallback::Error &error)
+CCallback *CCallback::m_Instance = new CCallback;
+
+
+void CCallback::ProcessCallbacks() 
 {
-	error = CCallback::Error::NONE;
-	if (amx == nullptr)
+	CMySQLQuery *query = NULL;
+	while(m_CallbackQueue.pop(query))
 	{
-		error = CCallback::Error::INVALID_AMX;
-		return nullptr;
-	}
-
-	if (params == nullptr)
-	{
-		error = CCallback::Error::INVALID_PARAMETERS;
-		return nullptr;
-	}
-
-	if (name.empty())
-	{
-		error = CCallback::Error::EMPTY_NAME;
-		return nullptr;
-	}
-
-
-	int cb_idx = -1;
-	if (amx_FindPublic(amx, name.c_str(), &cb_idx) != AMX_ERR_NONE)
-	{
-		error = CCallback::Error::NOT_FOUND;
-		return nullptr;
-	}
-
-
-	CCallback::ParamList_t param_list;
-	if (format.empty() == false)
-	{
-		if (static_cast<cell>(params[0] / sizeof(cell)) < param_offset)
+		if (query->Orm.Object != NULL)
 		{
-			error = CCallback::Error::INVALID_PARAM_OFFSET;
-			return nullptr;
+			switch (query->Orm.Type)
+			{
+			case ORM_QUERYTYPE_SELECT:
+				query->Orm.Object->ApplySelectResult(query->Result);
+				break;
+
+			case ORM_QUERYTYPE_INSERT:
+				query->Orm.Object->ApplyInsertResult(query->Result);
+				break;
+			}
 		}
 
-
-		cell param_idx = 0;
-		cell *address_ptr = nullptr;
-
-		for (auto &c : format)
+		if (!query->Callback.Name.empty())
 		{
-			switch (c)
+			const bool pass_by_ref = (query->Callback.Name.find("FJ37DH3JG") != string::npos);
+			for (set<AMX *>::iterator a = m_AmxList.begin(), end = m_AmxList.end(); a != end; ++a)
 			{
+				AMX *amx = (*a);
+				int amx_index;
+
+				if (amx_FindPublic(amx, query->Callback.Name.c_str(), &amx_index) == AMX_ERR_NONE)
+				{
+					cell amx_mem_addr = -1;
+					CLog::Get()->StartCallback(query->Callback.Name.c_str());
+
+					while (!query->Callback.Params.empty())
+					{
+						boost::variant<cell, string> value = boost::move(query->Callback.Params.top());
+						if (value.type() == typeid(cell))
+						{
+							if (pass_by_ref)
+							{
+								cell tmp_addr;
+								amx_PushArray(amx, &tmp_addr, NULL, (cell*)&boost::get<cell>(value), 1);
+								if (amx_mem_addr < NULL)
+									amx_mem_addr = tmp_addr;
+							}
+							else
+								amx_Push(amx, boost::get<cell>(value));
+						}
+						else
+						{
+							cell tmp_addr;
+							amx_PushString(amx, &tmp_addr, NULL, boost::get<string>(value).c_str(), 0, 0);
+							if (amx_mem_addr < NULL)
+								amx_mem_addr = tmp_addr;
+						}
+
+						query->Callback.Params.pop();
+					}
+
+					query->Handle->SetActiveResult(query->Result);
+					query->Result = NULL;
+
+					cell amx_ret;
+					amx_Exec(amx, &amx_ret, amx_index);
+					if (amx_mem_addr >= NULL)
+						amx_Release(amx, amx_mem_addr);
+
+					if (query->Handle->IsActiveResultSaved() == false)
+						delete query->Handle->GetActiveResult();
+
+					query->Handle->SetActiveResult(static_cast<CMySQLResult *>(NULL));
+
+					CLog::Get()->EndCallback();
+
+					break; //we have found our callback, exit loop
+				}
+			}
+		}
+
+		delete query;
+		query = NULL;
+	}
+}
+
+
+void CCallback::FillCallbackParams(stack< boost::variant<cell, string> > &dest, const char *format, AMX* amx, cell* params, const int ConstParamCount)
+{
+	if (format == NULL || !(*format))
+		return ;
+
+	unsigned int ParamIdx = 1;
+	cell *AddressPtr = NULL;
+
+	do
+	{
+		char *StrBuf = NULL;
+		switch (*format)
+		{
 			case 'd':
 			case 'i':
 			case 'f':
-			case 'b':
-				amx_GetAddr(amx, params[param_offset + param_idx], &address_ptr);
-				param_list.push(*address_ptr);
+				amx_GetAddr(amx, params[ConstParamCount + ParamIdx], &AddressPtr);
+				dest.push(*AddressPtr);
 				break;
+			case 'z':
 			case 's':
-				param_list.push(amx_GetCppString(amx, params[param_offset + param_idx]));
-				break;
-			case 'a':
-				//TODO: support for arrays
+				amx_StrParam(amx, params[ConstParamCount + ParamIdx], StrBuf);
+				dest.push(StrBuf == NULL ? string() : string(StrBuf));
 				break;
 			default:
-				error = CCallback::Error::INVALID_FORMAT_SPECIFIER;
-				return nullptr;
-			}
-			param_idx++;
+				dest.push(string("NULL"));
 		}
-	}
-
-	return std::make_shared<CCallback>(amx, cb_idx, std::move(param_list));
+		ParamIdx++;
+	} while (*(++format));
 }
 
-
-bool CCallback::Execute()
+void CCallback::ClearByHandle(CMySQLHandle *handle)
 {
-	if (CCallbackManager::Get()->IsValidAmx(m_AmxInstance) == false)
-		return false;
-
-	if (m_Executed == true)
-		return false; //can't execute the same callback more than once because m_Params is emptied
-
-
-	cell amx_address = -1;
-	while (m_Params.empty() == false)
+	std::queue<CMySQLQuery *> tmp_queue;
+	CMySQLQuery *query = NULL;
+	while(m_CallbackQueue.pop(query))
 	{
-		auto &param = m_Params.top();
-		if (param.type() == typeid(cell))
-		{
-			amx_Push(m_AmxInstance, boost::get<cell>(param));
-		}
+		if(query->Handle != handle)
+			tmp_queue.push(query);
 		else
 		{
-			cell tmp_addr;
-			amx_PushString(m_AmxInstance, &tmp_addr, nullptr,
-				boost::get<string>(param).c_str(), 0, 0);
-
-			if (amx_address < NULL)
-				amx_address = tmp_addr;
+			delete query->Result;
+			delete query;
 		}
-		m_Params.pop();
 	}
 
-	amx_Exec(m_AmxInstance, nullptr, m_AmxCallbackIndex);
-	if (amx_address >= NULL)
-		amx_Release(m_AmxInstance, amx_address);
-
-	m_Executed = true;
-	return true;
-}
-
-bool CCallbackManager::GetErrorString(CCallback::Error error, string &dest)
-{
-	static const std::map<CCallback::Error, string> error_list{
-			{ CCallback::Error::INVALID_AMX, "Invalid AMX" },
-			{ CCallback::Error::INVALID_PARAMETERS, "Invalid parameters" },
-			{ CCallback::Error::INVALID_PARAM_OFFSET, "Parameter count does not match format specifier length" },
-			{ CCallback::Error::INVALID_FORMAT_SPECIFIER, "Invalid format specifier" },
-			{ CCallback::Error::EMPTY_NAME, "Empty name specified" },
-			{ CCallback::Error::NOT_FOUND, "Callback does not exist" }
-	};
-
-	auto error_it = error_list.find(error);
-	if (error_it != error_list.end())
+	while(!tmp_queue.empty())
 	{
-		dest = error_it->second;
-		return true;
+		m_CallbackQueue.push(tmp_queue.front());
+		tmp_queue.pop();
 	}
-	return false;
 }

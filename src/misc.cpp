@@ -1,61 +1,75 @@
-#pragma warning (disable: 4244) //conversion from `long` to `float`, possible loss of data
+#pragma once
 
 #include "misc.h"
 
+#include <cstring>
 #include <boost/spirit/include/qi.hpp>
 #include <boost/spirit/include/karma.hpp>
-#include <type_traits>
 
 using namespace boost::spirit;
 
 
-template<typename T>
-bool ConvertStrToData(const string &src, T &dest)
+bool ConvertStrToInt(const char *src, int &dest) 
 {
-	return qi::parse(src.begin(), src.end(),
-		typename std::conditional<
-			std::is_floating_point<T>::value, 
-				qi::real_parser<T>, 
-				qi::int_parser<T>
-		>::type(), 
-		dest);
+	if (src == NULL)
+		return false;
+
+	const char 
+		*first_iter = src,
+		*last_iter = first_iter+strlen(src);
+
+	return qi::parse(first_iter, last_iter, qi::int_, dest);
 }
 
-template bool ConvertStrToData(const string &src, int &dest);
-template bool ConvertStrToData(const string &src, unsigned int &dest);
-template bool ConvertStrToData(const string &src, short &dest);
-template bool ConvertStrToData(const string &src, unsigned short &dest);
-template bool ConvertStrToData(const string &src, char &dest);
-template bool ConvertStrToData(const string &src, unsigned char &dest);
-template bool ConvertStrToData(const string &src, long long &dest);
-template bool ConvertStrToData(const string &src, unsigned long long &dest);
-template bool ConvertStrToData(const string &src, float &dest);
-template bool ConvertStrToData(const string &src, double &dest);
-
-
-
-template<typename T>
-bool ConvertDataToStr(T src, string &dest)
+bool ConvertStrToFloat(const char *src, float &dest) 
 {
-	return karma::generate(std::back_inserter(dest), 
-		typename std::conditional<
-			std::is_floating_point<T>::value,
-				karma::real_generator<T>,
-				typename std::conditional<
-					std::is_signed<T>::value,
-						karma::int_generator<T>, 
-						karma::uint_generator<T>
-				>::type
-		>::type(),
-		src);
+	if (src == NULL)
+		return false;
+
+	const char 
+		*first_iter(src),
+		*last_iter(first_iter+strlen(src));
+
+	return qi::parse(first_iter, last_iter, qi::double_, dest);
 }
-template bool ConvertDataToStr(int src, string &dest);
-template bool ConvertDataToStr(unsigned int src, string &dest);
-template bool ConvertDataToStr(short src, string &dest);
-template bool ConvertDataToStr(unsigned short src, string &dest);
-template bool ConvertDataToStr(char src, string &dest);
-template bool ConvertDataToStr(unsigned char src, string &dest);
-template bool ConvertDataToStr(long long src, string &dest);
-template bool ConvertDataToStr(unsigned long long src, string &dest);
-template bool ConvertDataToStr(float src, string &dest);
-template bool ConvertDataToStr(double src, string &dest);
+
+
+template<unsigned int B> //B = base/radix
+bool ConvertIntToStr(int src, char *dest) 
+{
+	const bool ReturnVal = karma::generate(dest, karma::int_generator<int, B>(), src);
+	*dest = 0;
+	return ReturnVal;
+}
+//instantiate templates
+template bool ConvertIntToStr<16>(int src, char *dest);
+template bool ConvertIntToStr<10>(int src, char *dest);
+template bool ConvertIntToStr<2>(int src, char *dest);
+
+bool ConvertIntToStr(int src, char *dest) 
+{
+	if (dest == NULL)
+		return false;
+
+	const bool success = karma::generate(dest, karma::int_generator<int>(), src);
+	*dest = 0;
+	return success;
+}
+
+bool ConvertFloatToStr(float src, char *dest) 
+{
+	if (dest == NULL)
+		return false;
+
+	const bool success = karma::generate(dest, double_, src);
+	*dest = 0;
+	return success;
+}
+
+
+void amx_SetCString(AMX* amx, cell param, const char *str, int len) 
+{
+	cell *dest = NULL;
+	amx_GetAddr(amx, param, &dest);
+	amx_SetString(dest, str, 0, 0, (len > 0) ? len : (strlen(str)+1));
+}
